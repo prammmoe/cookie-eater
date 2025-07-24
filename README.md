@@ -25,7 +25,7 @@ Follow these instructions to get a copy of the project up and running on your lo
 
     ```bash
     git clone <repository-url>
-    cd day-001
+    cd cookies-eater
     ```
 
 2. **Install dependencies:**
