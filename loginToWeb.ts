@@ -1,9 +1,6 @@
 import puppeteer, { Browser } from 'puppeteer';
-import { setTimeout as sleep } from 'node:timers/promises';
-import fs from 'fs/promises';
 import 'dotenv/config';
-
-
+import { selectors } from './selectors';
 
 export const loginToWeb = async (): Promise<any[]> => {
   const IS_HEADLESS = process.env.ENVIRONMENT === 'PRODUCTION';
@@ -11,8 +8,7 @@ export const loginToWeb = async (): Promise<any[]> => {
   const PASSWORD = process.env.PASSWORD ?? '';
 
   if (!EMAIL || !PASSWORD) {
-    // throw new Error('❌ EMAIL or PASSWORD not set in environment variables');
-    return [];
+    throw new Error('❌ EMAIL or PASSWORD not set in environment variables');
   }
 
   const browser = await puppeteer.launch({
@@ -22,11 +18,11 @@ export const loginToWeb = async (): Promise<any[]> => {
   const page = await browser.newPage();
   await page.goto(process.env.WEB_URL ?? '', { waitUntil: 'networkidle2' });
 
-  const loginBtn = await page.$('a[href="/login"]');
+  const loginBtn = await page.$(selectors.loginButton);
 
   if (!loginBtn) {
     console.log('✅ Already logged in — saving cookies only.');
-    return await saveCookies(browser);
+    return await getFormattedCookies(browser);
   }
 
   console.log('🔓 Not logged in, clicking login...');
@@ -34,27 +30,24 @@ export const loginToWeb = async (): Promise<any[]> => {
   await page.waitForNavigation({ waitUntil: 'networkidle2' });
 
   // Wait for email input and type
-  const emailSelector = 'input[type="email"]';
-  await page.waitForSelector(emailSelector, { visible: true });
+  await page.waitForSelector(selectors.emailInput, { visible: true });
   console.log('⌨️ Typing email...');
-  await page.type(emailSelector, EMAIL, { delay: 100 });
+  await page.type(selectors.emailInput, EMAIL, { delay: 100 });
 
   // Click Continue
-  const continueBtnSelector = 'button[type="submit"][data-sentry-component="SubmitButton"]';
-  await page.waitForSelector(continueBtnSelector, { visible: true });
+  await page.waitForSelector(selectors.submitButton, { visible: true });
   console.log('🖱️ Clicking Continue (after email)...');
-  await page.click(continueBtnSelector);
+  await page.click(selectors.submitButton);
 
   // Wait for password input to become visible and interactive
-  const passwordSelector = 'input[type="password"][name="password"]';
   console.log('⏳ Waiting for password field to become visible...');
   await page.waitForFunction(
-    selector => {
+    (selector) => {
       const el = document.querySelector<HTMLInputElement>(selector);
       return !!el && el.offsetParent !== null;
     },
     { timeout: 15000 },
-    passwordSelector
+    selectors.passwordInput,
   );
 
   console.log('🔒 Typing password...');
@@ -64,20 +57,20 @@ export const loginToWeb = async (): Promise<any[]> => {
       input.focus();
       input.value = '';
     }
-  }, passwordSelector);
+  }, selectors.passwordInput);
 
-  await sleep(700);
-  await page.type(passwordSelector, PASSWORD, { delay: 100 });
+  await page.type(selectors.passwordInput, PASSWORD, { delay: 100 });
 
   // Click Continue after password
-  await page.waitForSelector(continueBtnSelector, { visible: true });
+  await page.waitForSelector(selectors.submitButton, { visible: true });
   console.log('🖱️ Clicking Continue (after password)...');
-  await page.click(continueBtnSelector);
+  await page.click(selectors.submitButton);
 
-  await sleep(3000);
+  console.log('⏳ Waiting for navigation after login...');
+  await page.waitForNavigation({ waitUntil: 'networkidle2' });
   console.log('✅ Login flow completed.');
 
-  const savedCookies = await saveCookies(browser);
+  const savedCookies = await getFormattedCookies(browser);
 
   // close browser
   await browser.close();
@@ -85,10 +78,10 @@ export const loginToWeb = async (): Promise<any[]> => {
   return savedCookies;
 };
 
-const saveCookies = async (browser: Browser, filename: string = 'cookies.json') => {
+const getFormattedCookies = async (browser: Browser): Promise<any[]> => {
   const cookies = await browser.defaultBrowserContext().cookies();
 
-  const formattedCookies = cookies.map(cookie => ({
+  const formattedCookies = cookies.map((cookie) => ({
     domain: cookie.domain,
     expirationDate: cookie.expires ?? undefined,
     hostOnly: !cookie.domain.startsWith('.'),
@@ -99,11 +92,9 @@ const saveCookies = async (browser: Browser, filename: string = 'cookies.json') 
     secure: cookie.secure,
     session: !cookie.expires,
     storeId: null,
-    value: cookie.value
+    value: cookie.value,
   }));
-
-  // await fs.writeFile(filename, JSON.stringify(formattedCookies, null, 2));
-  // console.log(`🍪 Cookies saved to ${filename}`);
 
   return formattedCookies;
 };
+
