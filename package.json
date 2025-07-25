@@ -8,7 +8,9 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "ts-node index.ts"
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "postinstall": "npx puppeteer browsers install chrome"
   },
   "dependencies": {
     "dotenv": "^17.2.0",

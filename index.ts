@@ -6,6 +6,10 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const ENV = process.env.ENVIRONMENT || 'PRODUCTION';
 
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok' });
+});
+
 app.get('/login-to-web', async (req, res) => {
   try {
     const  myCookies = await loginToWeb();
@@ -16,6 +20,7 @@ app.get('/login-to-web', async (req, res) => {
   }
 });
 
+console.log(`Running in directory: ${process.cwd()}`);
 app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
 });

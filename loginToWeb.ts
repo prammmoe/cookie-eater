@@ -7,16 +7,27 @@ export const loginToWeb = async (): Promise<any[]> => {
   const EMAIL = process.env.EMAIL ?? '';
   const PASSWORD = process.env.PASSWORD ?? '';
 
+
   if (!EMAIL || !PASSWORD) {
     throw new Error('❌ EMAIL or PASSWORD not set in environment variables');
   }
 
+  console.log('🚀 Launching browser...');
+
   const browser = await puppeteer.launch({
     headless: IS_HEADLESS,
+    args: ["--no-sandbox"],
   });
+  console.log('🚀 Browser launched.');
 
+  console.log('Opening login page...');
   const page = await browser.newPage();
-  await page.goto(process.env.WEB_URL ?? '', { waitUntil: 'networkidle2' });
+
+  const URL = process.env.WEB_URL ?? ''
+  console.log(`🚀 Navigating to ${URL}...`);
+
+  await page.goto(URL, { waitUntil: ['load', 'domcontentloaded'], timeout:120000 });
+  console.log('✅ Login page opened.');
 
   const loginBtn = await page.$(selectors.loginButton);
 
@@ -27,7 +38,6 @@ export const loginToWeb = async (): Promise<any[]> => {
 
   console.log('🔓 Not logged in, clicking login...');
   await loginBtn.click();
-  await page.waitForNavigation({ waitUntil: 'networkidle2' });
 
   // Wait for email input and type
   await page.waitForSelector(selectors.emailInput, { visible: true });
@@ -67,8 +77,8 @@ export const loginToWeb = async (): Promise<any[]> => {
   await page.click(selectors.submitButton);
 
   console.log('⏳ Waiting for navigation after login...');
-  await page.waitForNavigation({ waitUntil: 'networkidle2' });
   console.log('✅ Login flow completed.');
+  await new Promise((resolve) => setTimeout(resolve, 5000));
 
   const savedCookies = await getFormattedCookies(browser);
 
