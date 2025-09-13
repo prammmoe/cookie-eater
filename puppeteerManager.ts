@@ -1,4 +1,5 @@
-import puppeteer, { Browser, Page } from "puppeteer";
+import chromium from "@sparticuz/chromium";
+import puppeteer, { Browser, Page } from "puppeteer-core";
 
 // Lazily-created shared browser instance
 let sharedBrowser: Browser | null = null;
@@ -66,16 +67,19 @@ export const setConcurrency = (concurrency: number) => {
 export const getBrowser = async (): Promise<Browser> => {
   if (sharedBrowser && sharedBrowser.isConnected()) return sharedBrowser;
 
-  const IS_HEADLESS = process.env.ENVIRONMENT === "PRODUCTION";
+  // Prefer serverless-friendly Chromium when running on Vercel
+  const executablePath = (await chromium.executablePath()) || process.env.CHROME_EXECUTABLE_PATH;
+  if (!executablePath) {
+    throw new Error(
+      "Could not resolve a Chrome executable path. Set CHROME_EXECUTABLE_PATH or rely on @sparticuz/chromium."
+    );
+  }
+
   sharedBrowser = await puppeteer.launch({
-    headless: IS_HEADLESS,
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--disable-web-security",
-      "--disable-features=VizDisplayCompositor",
-    ],
+    args: chromium.args,
+    defaultViewport: chromium.defaultViewport,
+    executablePath,
+    headless: chromium.headless,
   });
   return sharedBrowser;
 };

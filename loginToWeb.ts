@@ -1,4 +1,4 @@
-import { Browser, Page } from "puppeteer";
+import { Browser, Page } from "puppeteer-core";
 import "dotenv/config";
 import { selectors } from "./selectors";
 import { withPage, getBrowser, hasBrowser } from "./puppeteerManager";
@@ -128,9 +128,9 @@ export const loginToWeb = async (): Promise<any[]> => {
     }
 
     if (!foundPasswordSelector) {
-      // Take screenshot for debugging
+      // Take screenshot for debugging (write to /tmp on Vercel)
       await page.screenshot({
-        path: "password-field-not-found.png",
+        path: `${process.env.VERCEL ? "/tmp" : "."}/password-field-not-found.png`,
         fullPage: true,
       });
       throw new Error("Password input did not appear in time");
@@ -198,8 +198,11 @@ export const loginToWeb = async (): Promise<any[]> => {
     // Final verification that login was successful
     const stillHasLogin = await page.$(selectors.loginButton);
     if (stillHasLogin) {
-      // Take screenshot for debugging
-      await page.screenshot({ path: "login-failed.png", fullPage: true });
+      // Take screenshot for debugging (write to /tmp on Vercel)
+      await page.screenshot({
+        path: `${process.env.VERCEL ? "/tmp" : "."}/login-failed.png`,
+        fullPage: true,
+      });
       console.warn(
         "⚠️ Login button still present after submit — login may have failed."
       );
