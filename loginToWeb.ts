@@ -1,4 +1,4 @@
-import { Browser, Page } from "puppeteer";
+import { Browser, Page } from "puppeteer-core";
 import "dotenv/config";
 import { selectors } from "./selectors";
 import { withPage, getBrowser, hasBrowser } from "./puppeteerManager";
@@ -6,12 +6,15 @@ import { withPage, getBrowser, hasBrowser } from "./puppeteerManager";
 export const loginToWeb = async (): Promise<any[]> => {
   const EMAIL = process.env.EMAIL ?? "";
   const PASSWORD = process.env.PASSWORD ?? "";
+  const TARGET_URL = process.env.WEB_URL ?? "";
 
   if (!EMAIL || !PASSWORD) {
     throw new Error("❌ EMAIL or PASSWORD not set in environment variables");
   }
+  if (!TARGET_URL) {
+    throw new Error("❌ WEB_URL not set in environment variables");
+  }
 
-  const TARGET_URL = process.env.WEB_URL ?? "";
   console.log(`🚀 Navigating to ${TARGET_URL}...`);
 
   const existedBefore = hasBrowser();
@@ -29,10 +32,10 @@ export const loginToWeb = async (): Promise<any[]> => {
     });
     console.log("✅ Page loaded.");
 
-    // Wait for page to fully load including any SPA initialization
+    // Wait for SPA initialization
     await sleep(2000);
 
-    // Check for login state via login button presence, but allow SPA delays
+    // Check if already logged in
     const loginBtn = await page
       .waitForSelector(selectors.loginButton, { visible: true, timeout: 10000 })
       .catch(() => null);
@@ -40,7 +43,10 @@ export const loginToWeb = async (): Promise<any[]> => {
     if (!loginBtn) {
       console.log("✅ Already logged in — collecting cookies...");
       await waitForFullAuthentication(page);
-      const savedCookies = await getFormattedCookies(browser, new globalThis.URL(TARGET_URL).hostname);
+      const savedCookies = await getFormattedCookies(
+        browser,
+        new URL(TARGET_URL).hostname
+      );
       await verifyCookies(page, savedCookies, TARGET_URL);
       return savedCookies;
     }
@@ -48,23 +54,21 @@ export const loginToWeb = async (): Promise<any[]> => {
     console.log("🔓 Not logged in, clicking login...");
     await loginBtn.click();
 
-    // Wait for login form to appear
+    // Wait for login form
     await sleep(1000);
 
-    // Email step
-    const emailSelector = selectors.emailInput;
-    await page.waitForSelector(emailSelector, {
+    // Handle email step
+    await page.waitForSelector(selectors.emailInput, {
       visible: true,
       timeout: 15000,
     });
     console.log("⌨️ Typing email...");
 
-    // Clear field first
-    await page.click(emailSelector, { clickCount: 3 });
+    await page.click(selectors.emailInput, { clickCount: 3 });
     await page.keyboard.press("Backspace");
-    await page.type(emailSelector, EMAIL, { delay: 50 });
+    await page.type(selectors.emailInput, EMAIL, { delay: 50 });
 
-    // Find a submit button robustly
+    // Find submit button
     const possibleSubmitSelectors = [
       selectors.submitButton,
       'button[type="submit"]',
@@ -75,37 +79,27 @@ export const loginToWeb = async (): Promise<any[]> => {
       '[data-testid="submit-button"]',
     ];
 
-    let submitSelector: string | null = null;
-    for (const sel of possibleSubmitSelectors) {
-      const handle = await page
-        .waitForSelector(sel, { visible: true, timeout: 5000 })
-        .catch(() => null);
-      if (handle) {
-        submitSelector = sel;
-        break;
-      }
-    }
-
+    const submitSelector = await findVisibleSelector(
+      page,
+      possibleSubmitSelectors
+    );
     if (!submitSelector) {
       throw new Error("Submit button not found");
     }
 
     console.log("🖱️ Clicking Continue (after email)...");
-
-    // Click and wait for form transition
     await Promise.all([
       page.click(submitSelector),
-      // Wait for either navigation or form change
       Promise.race([
         page
           .waitForNavigation({ waitUntil: "networkidle0", timeout: 15000 })
           .catch(() => null),
-        sleep(2000), // Fallback for SPA transitions
+        sleep(2000), // fallback for SPA
       ]),
     ]);
 
-    // Password step with multiple fallback selectors
-    console.log("⏳ Waiting for password field to become visible...");
+    // Handle password step
+    console.log("⏳ Waiting for password field...");
     const possiblePasswordSelectors = [
       selectors.passwordInput,
       'input[type="password"]',
@@ -116,19 +110,11 @@ export const loginToWeb = async (): Promise<any[]> => {
       ".password-input",
     ];
 
-    let foundPasswordSelector: string | null = null;
-    for (const sel of possiblePasswordSelectors) {
-      const handle = await page
-        .waitForSelector(sel, { visible: true, timeout: 10000 })
-        .catch(() => null);
-      if (handle) {
-        foundPasswordSelector = sel;
-        break;
-      }
-    }
-
+    const foundPasswordSelector = await findVisibleSelector(
+      page,
+      possiblePasswordSelectors
+    );
     if (!foundPasswordSelector) {
-      // Take screenshot for debugging
       await page.screenshot({
         path: "password-field-not-found.png",
         fullPage: true,
@@ -141,41 +127,28 @@ export const loginToWeb = async (): Promise<any[]> => {
     await page.keyboard.press("Backspace");
     await page.type(foundPasswordSelector, PASSWORD, { delay: 50 });
 
-    // Wait a bit for any client-side validation
     await sleep(500);
 
-    // Find submit button again (might have changed)
-    let finalSubmitSelector: string | null = null;
-    for (const sel of possibleSubmitSelectors) {
-      const handle = await page
-        .waitForSelector(sel, { visible: true, timeout: 5000 })
-        .catch(() => null);
-      if (handle) {
-        finalSubmitSelector = sel;
-        break;
-      }
-    }
-
+    const finalSubmitSelector = await findVisibleSelector(
+      page,
+      possibleSubmitSelectors
+    );
     if (!finalSubmitSelector) {
       throw new Error("Final submit button not found");
     }
 
     console.log("🖱️ Clicking Continue (after password)...");
 
-    // Handle different types of post-login flows
+    // Handle post-login flows
     await Promise.race([
-      // Traditional navigation-based login
       (async () => {
         await Promise.all([
           page.waitForNavigation({ waitUntil: "networkidle0", timeout: 30000 }),
-          page.click(finalSubmitSelector!),
+          page.click(finalSubmitSelector),
         ]);
       })(),
-
-      // SPA-based login (no navigation)
       (async () => {
-        await page.click(finalSubmitSelector!);
-        // Wait for login button to disappear OR success indicator to appear
+        await page.click(finalSubmitSelector);
         await Promise.race([
           page.waitForSelector(selectors.loginButton, {
             hidden: true,
@@ -191,43 +164,48 @@ export const loginToWeb = async (): Promise<any[]> => {
       })(),
     ]);
 
-    // Wait for full authentication to complete
     console.log("⏳ Waiting for full authentication...");
     await waitForFullAuthentication(page);
 
-    // Final verification that login was successful
     const stillHasLogin = await page.$(selectors.loginButton);
     if (stillHasLogin) {
-      // Take screenshot for debugging
       await page.screenshot({ path: "login-failed.png", fullPage: true });
       console.warn(
         "⚠️ Login button still present after submit — login may have failed."
       );
     } else {
-      console.log(
-        "✅ Login button no longer present - login likely successful"
-      );
+      console.log("✅ Login successful, collecting cookies...");
     }
 
-    console.log("✅ Login flow completed. Collecting cookies...");
-    const hostname = new globalThis.URL(TARGET_URL).hostname;
+    const hostname = new URL(TARGET_URL).hostname;
     const savedCookies = await getFormattedCookies(browser, hostname);
 
-    // Verify cookies work
     await verifyCookies(page, savedCookies, TARGET_URL);
 
     return savedCookies;
   });
 };
 
-const waitForFullAuthentication = async (page: Page): Promise<void> => {
-  // Wait for common post-login elements or processes
-  console.log("⏳ Waiting for authentication to complete...");
+/**
+ * Utility to find the first visible selector
+ */
+const findVisibleSelector = async (
+  page: Page,
+  selectors: string[]
+): Promise<string | null> => {
+  for (const sel of selectors) {
+    const handle = await page
+      .waitForSelector(sel, { visible: true, timeout: 5000 })
+      .catch(() => null);
+    if (handle) return sel;
+  }
+  return null;
+};
 
-  // Wait a base amount of time for cookies to be set
+const waitForFullAuthentication = async (page: Page): Promise<void> => {
+  console.log("⏳ Waiting for authentication to complete...");
   await sleep(3000);
 
-  // Try to wait for common authenticated page elements
   const authIndicators = [
     '[data-testid="user-menu"]',
     '[data-testid="dashboard"]',
@@ -249,15 +227,11 @@ const waitForFullAuthentication = async (page: Page): Promise<void> => {
     }
   }
 
-  // Additional wait for any async cookie setting
   await sleep(2000);
 
-  // Wait for any pending network requests to complete
-  await page
-    .waitForNetworkIdle({ timeout: 10000 })
-    .catch(() => {
-      console.log("⏳ Network idle wait not available or timed out");
-    });
+  await page.waitForNetworkIdle({ timeout: 10000 }).catch(() => {
+    console.log("⏳ Network idle wait not available or timed out");
+  });
 };
 
 const getFormattedCookies = async (
@@ -266,14 +240,10 @@ const getFormattedCookies = async (
 ): Promise<any[]> => {
   console.log("🍪 Collecting cookies from all browser contexts...");
 
-  // Get cookies from all pages and contexts
   let allCookies: any[] = [];
-
-  // Get cookies from default browser context
   const defaultCookies = await browser.defaultBrowserContext().cookies();
   allCookies = allCookies.concat(defaultCookies);
 
-  // Get cookies from all pages
   const pages = await browser.pages();
   for (const page of pages) {
     try {
@@ -284,7 +254,6 @@ const getFormattedCookies = async (
     }
   }
 
-  // Remove duplicates based on name, domain, and path
   const uniqueCookies = allCookies.filter(
     (cookie, index, self) =>
       index ===
@@ -310,7 +279,6 @@ const getFormattedCookies = async (
     if (cookieDomain === host) return true;
     if (cookieDomain === `.${host}`) return true;
     if (cookieDomain.endsWith(`.${host}`)) return true;
-    // Be more permissive with subdomains
     if (host.includes(cookieDomain.replace(/^\./, ""))) return true;
     if (cookieDomain.replace(/^\./, "").includes(host)) return true;
     return false;
@@ -324,7 +292,7 @@ const getFormattedCookies = async (
     `🍪 Found ${filtered.length} relevant cookies (${uniqueCookies.length} total unique)`
   );
 
-  const formattedCookies = filtered.map((cookie) => {
+  return filtered.map((cookie) => {
     const expires =
       typeof cookie.expires === "number" ? cookie.expires : undefined;
     const isSession = !expires || expires <= 0;
@@ -350,18 +318,6 @@ const getFormattedCookies = async (
 
     return base;
   });
-
-  // Log cookie details for debugging
-  console.log("🍪 Cookie summary:");
-  formattedCookies.forEach((cookie) => {
-    console.log(
-      `  - ${cookie.name}: ${cookie.domain}${cookie.path} (${
-        cookie.session ? "session" : "persistent"
-      })`
-    );
-  });
-
-  return formattedCookies;
 };
 
 const verifyCookies = async (
@@ -372,7 +328,6 @@ const verifyCookies = async (
   console.log("🧪 Verifying cookies work for authentication...");
 
   try {
-    // Set all cookies
     for (const cookie of cookies) {
       try {
         await testPage.setCookie({
@@ -390,11 +345,9 @@ const verifyCookies = async (
       }
     }
 
-    // Navigate to the target URL
     await testPage.goto(targetUrl, { waitUntil: "domcontentloaded" });
-    await new Promise((resolve) => setTimeout(resolve, 3000)); // Wait for any auth checks
+    await sleep(3000);
 
-    // Check if logged in by looking for login button absence
     const loginButton = await testPage
       .$(selectors.loginButton)
       .catch(() => null);
@@ -405,11 +358,8 @@ const verifyCookies = async (
         "✅ Cookie verification successful - appears to be logged in"
       );
     } else {
-      console.log(
-        "⚠️  Cookie verification failed - login button still present"
-      );
+      console.log("⚠️ Cookie verification failed - login button still present");
 
-      // Additional checks for auth indicators
       const authIndicators = [
         '[data-testid="user-menu"]',
         ".user-avatar",
@@ -417,38 +367,26 @@ const verifyCookies = async (
         '[data-testid="dashboard"]',
       ];
 
-      let foundAuthIndicator = false;
       for (const indicator of authIndicators) {
         const element = await testPage.$(indicator).catch(() => null);
         if (element) {
           console.log(
             `✅ Found auth indicator: ${indicator} - cookies might still work`
           );
-          foundAuthIndicator = true;
           break;
         }
-      }
-
-      if (!foundAuthIndicator) {
-        console.warn(
-          "⚠️  No authentication indicators found - cookies may not be working"
-        );
       }
     }
   } catch (error) {
     console.error("❌ Cookie verification failed:", error);
-  } finally {
-    // keep the page open for caller
   }
 };
 
-// Export utility function to use cookies in other contexts
 export const applyCookiesToPage = async (
   page: Page,
   cookies: any[]
 ): Promise<void> => {
   console.log("🍪 Applying cookies to new page...");
-
   for (const cookie of cookies) {
     try {
       await page.setCookie({
@@ -465,9 +403,8 @@ export const applyCookiesToPage = async (
       console.warn(`Failed to apply cookie ${cookie.name}:`, e?.message ?? e);
     }
   }
-
   console.log(`✅ Applied ${cookies.length} cookies to page`);
 };
 
-// Small sleep utility compatible with Puppeteer types
-const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+const sleep = (ms: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, ms));

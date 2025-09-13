@@ -13,11 +13,12 @@
     "postinstall": "npx puppeteer browsers install chrome"
   },
   "dependencies": {
+    "@sparticuz/chromium": "^138.0.2",
     "@vercel/node": "^5.3.22",
     "dotenv": "^17.2.0",
     "express": "^5.1.0",
     "p-queue": "^8.1.1",
-    "puppeteer": "^24.15.0"
+    "puppeteer-core": "^24.20.0"
   },
   "devDependencies": {
     "@types/express": "^5.0.3",
