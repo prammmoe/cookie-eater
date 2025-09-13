@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cookie Eater</title>
+    <style>
+      :root {
+        --bg: #0f172a;
+        --panel: #111827;
+        --text: #e5e7eb;
+        --muted: #9ca3af;
+        --accent: #22c55e;
+        --accent-hover: #16a34a;
+        --error: #ef4444;
+        --code-bg: #0b1220;
+        --border: #1f2937;
+        --shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+        --link: #60a5fa;
+        --link-hover: #93c5fd;
+      }
+
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+        background: radial-gradient(1200px 600px at 10% 10%, #14223d 0%, var(--bg) 50%),
+                    radial-gradient(900px 500px at 90% 0%, #1a2746 0%, transparent 50%);
+        color: var(--text);
+        min-height: 100vh;
+        padding: 24px;
+      }
+
+      .container {
+        width: min(920px, 100%);
+        margin: 0 auto;
+      }
+
+      .card {
+        background: linear-gradient(180deg, #0f172a 0%, #0c1426 100%);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        box-shadow: var(--shadow);
+        padding: 28px;
+      }
+
+      h1 {
+        margin: 0 0 8px 0;
+        font-weight: 700;
+        letter-spacing: 0.3px;
+        font-size: 28px;
+      }
+
+      .sub {
+        margin: 0 0 20px 0;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .row {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        flex-wrap: wrap;
+        margin: 10px 0 20px 0;
+      }
+
+      button {
+        appearance: none;
+        border: none;
+        background: var(--accent);
+        color: #0b121f;
+        font-weight: 700;
+        padding: 10px 14px;
+        border-radius: 10px;
+        cursor: pointer;
+        transition: transform 0.06s ease, background 0.15s ease, box-shadow 0.15s ease;
+        box-shadow: 0 6px 16px rgba(34, 197, 94, 0.25), inset 0 1px 0 rgba(255,255,255,0.2);
+      }
+      button:hover { background: var(--accent-hover); transform: translateY(-1px); }
+      button:active { transform: translateY(0); }
+      button[disabled] { opacity: 0.7; cursor: not-allowed; }
+
+      /* Secondary button style */
+      .secondary {
+        background: transparent;
+        color: var(--text);
+        border: 1px solid var(--border);
+        box-shadow: none;
+      }
+      .secondary:hover { background: rgba(255,255,255,0.05); }
+
+      .status { color: var(--muted); font-size: 13px; }
+      .status.error { color: var(--error); }
+
+      pre {
+        margin: 0;
+        padding: 16px;
+        background: var(--code-bg);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        font-size: 13px;
+        line-height: 1.5;
+        overflow: auto;
+        max-height: 70vh; /* prevent layout blowout on huge JSON */
+      }
+
+      .footer { margin-top: 16px; color: var(--muted); font-size: 12px; }
+      .hint { color: var(--muted); font-size: 12px; }
+
+      /* Anchor/link styling */
+      a {
+        color: var(--link);
+        text-decoration: none;
+        border-bottom: 1px dashed rgba(96, 165, 250, 0.35);
+        transition: color 0.15s ease, border-color 0.15s ease;
+      }
+      a:hover { color: var(--link-hover); border-color: rgba(147, 197, 253, 0.6); }
+      a:active { opacity: 0.95; }
+      a:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; border-radius: 2px; }
+    </style>
+  </head>
+  <body>
+    <main class="container">
+      <section class="card">
+        <h1>Cookie Eater</h1>
+        <p class="sub">Generate cookies for <a href="https://mobbin.com">Mobbin login</a> and view them as pretty JSON.</p>
+
+        <div class="row">
+          <button id="generateBtn">Generate Cookies</button>
+          <span id="status" class="status"></span>
+        </div>
+
+        <div style="margin-top:16px">
+          <div class="row" style="justify-content: space-between; margin: 0 0 8px 0;">
+            <div class="hint">Output</div>
+            <button id="copyBtn" class="secondary" disabled>Copy Output</button>
+          </div>
+          <pre id="output">// Cookies will appear here</pre>
+        </div>
+
+        <!-- <div class="footer">
+          <span>GET <a href="/login-to-web" target="_blank" rel="noopener noreferrer">/login-to-web</a></span>
+          <span> | GET <a href="/status" target="_blank" rel="noopener noreferrer">/status</a></span>
+          <span> | GET <a href="/health" target="_blank" rel="noopener noreferrer">/health</a></span>
+        </div> -->
+      </section>
+    </main>
+
+    <script>
+      const btn = document.getElementById('generateBtn');
+      const out = document.getElementById('output');
+      const copyBtn = document.getElementById('copyBtn');
+
+      function updateCopyState() {
+        const hasText = !!(out.textContent || '').trim();
+        copyBtn.disabled = !hasText;
+      }
+
+      async function copyOutput() {
+        const text = out.textContent || '';
+        if (!text.trim()) return;
+        const old = copyBtn.textContent;
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(text);
+          } else {
+            const ta = document.createElement('textarea');
+            ta.value = text; document.body.appendChild(ta); ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+          }
+          copyBtn.textContent = 'Copied!';
+          setTimeout(() => (copyBtn.textContent = old), 1200);
+        } catch (e) {
+          statusEl.textContent = 'Copy failed';
+          statusEl.classList.add('error');
+        }
+      }
+      const statusEl = document.getElementById('status');
+
+      async function generate() {
+        btn.disabled = true;
+        statusEl.textContent = 'Working… This may take up 2-3 minutes at most.';
+        statusEl.classList.remove('error');
+        out.textContent = '';
+
+        const started = performance.now();
+        try {
+          const res = await fetch('/login-to-web', { method: 'GET' });
+          const text = await res.text();
+          let data;
+          try { data = JSON.parse(text); } catch (e) { throw new Error(text || 'Invalid JSON response'); }
+
+          if (!res.ok) {
+            const message = data && data.message ? data.message : res.statusText;
+            throw new Error(message || 'Request failed');
+          }
+
+          // Pretty-print JSON with 2-space indentation
+          out.textContent = JSON.stringify(data, null, 2);
+          const tookMs = performance.now() - started;
+          const tookSec = (tookMs / 1000).toFixed(2);
+          statusEl.textContent = `Done in ${tookSec}s. ${Array.isArray(data) ? data.length : 0} cookies.`;
+          updateCopyState();
+        } catch (err) {
+          statusEl.textContent = err.message || 'Failed to generate cookies';
+          statusEl.classList.add('error');
+          // Show any structured error payload under the button too
+          try { out.textContent = JSON.stringify(JSON.parse(err.message), null, 2); }
+          catch { out.textContent = String(err.message || err); }
+          updateCopyState();
+        } finally {
+          btn.disabled = false;
+        }
+      }
+
+      btn.addEventListener('click', generate);
+      copyBtn.addEventListener('click', copyOutput);
+    </script>
+  </body>
+  </html>
