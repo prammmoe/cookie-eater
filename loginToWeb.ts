@@ -1,9 +1,9 @@
-import puppeteer, { Browser, Page } from "puppeteer";
+import { Browser, Page } from "puppeteer";
 import "dotenv/config";
 import { selectors } from "./selectors";
+import { withPage, getBrowser, hasBrowser } from "./puppeteerManager";
 
 export const loginToWeb = async (): Promise<any[]> => {
-  const IS_HEADLESS = process.env.ENVIRONMENT === "PRODUCTION";
   const EMAIL = process.env.EMAIL ?? "";
   const PASSWORD = process.env.PASSWORD ?? "";
 
@@ -11,34 +11,18 @@ export const loginToWeb = async (): Promise<any[]> => {
     throw new Error("❌ EMAIL or PASSWORD not set in environment variables");
   }
 
-  console.log("🚀 Launching browser...");
-
-  const browser = await puppeteer.launch({
-    headless: IS_HEADLESS,
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--disable-web-security",
-      "--disable-features=VizDisplayCompositor",
-    ],
-  });
-  console.log("🚀 Browser launched.");
-
-  const page = await browser.newPage();
-  // Make waits faster and more consistent
-  page.setDefaultTimeout(30000);
-  page.setDefaultNavigationTimeout(60000);
-
-  // Set user agent to avoid detection
-  await page.setUserAgent(
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-  );
-
   const TARGET_URL = process.env.WEB_URL ?? "";
   console.log(`🚀 Navigating to ${TARGET_URL}...`);
 
-  try {
+  const existedBefore = hasBrowser();
+  const browser = await getBrowser();
+  if (existedBefore) {
+    console.log("♻️ Reusing existing shared browser instance");
+  } else {
+    console.log("🆕 Launched new shared browser instance for this request");
+  }
+
+  return await withPage<any[]>(async (page) => {
     await page.goto(TARGET_URL, {
       waitUntil: "domcontentloaded",
       timeout: 60000,
@@ -56,11 +40,8 @@ export const loginToWeb = async (): Promise<any[]> => {
     if (!loginBtn) {
       console.log("✅ Already logged in — collecting cookies...");
       await waitForFullAuthentication(page);
-      const savedCookies = await getFormattedCookies(
-        browser,
-        new globalThis.URL(TARGET_URL).hostname
-      );
-      await verifyCookies(browser, savedCookies, TARGET_URL);
+      const savedCookies = await getFormattedCookies(browser, new globalThis.URL(TARGET_URL).hostname);
+      await verifyCookies(page, savedCookies, TARGET_URL);
       return savedCookies;
     }
 
@@ -233,13 +214,10 @@ export const loginToWeb = async (): Promise<any[]> => {
     const savedCookies = await getFormattedCookies(browser, hostname);
 
     // Verify cookies work
-    await verifyCookies(browser, savedCookies, TARGET_URL);
+    await verifyCookies(page, savedCookies, TARGET_URL);
 
     return savedCookies;
-  } finally {
-    // Always close the browser to prevent resource leaks
-    await browser.close();
-  }
+  });
 };
 
 const waitForFullAuthentication = async (page: Page): Promise<void> => {
@@ -387,13 +365,11 @@ const getFormattedCookies = async (
 };
 
 const verifyCookies = async (
-  browser: Browser,
+  testPage: Page,
   cookies: any[],
   targetUrl: string
 ): Promise<void> => {
   console.log("🧪 Verifying cookies work for authentication...");
-
-  const testPage = await browser.newPage();
 
   try {
     // Set all cookies
@@ -462,7 +438,7 @@ const verifyCookies = async (
   } catch (error) {
     console.error("❌ Cookie verification failed:", error);
   } finally {
-    await testPage.close();
+    // keep the page open for caller
   }
 };
 
