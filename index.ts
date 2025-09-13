@@ -2,6 +2,7 @@ import express from "express";
 import "dotenv/config";
 import { loginToWeb } from "./loginToWeb";
 import path from "path";
+import { closeBrowser } from "./puppeteerManager";
 
 const app = express();
 const PORT = process.env.PORT || 9900;
@@ -216,12 +217,12 @@ app.use(
 // Graceful shutdown handling
 process.on("SIGINT", () => {
   console.log("\n🛑 Received SIGINT, shutting down gracefully...");
-  process.exit(0);
+  closeBrowser().finally(() => process.exit(0));
 });
 
 process.on("SIGTERM", () => {
   console.log("\n🛑 Received SIGTERM, shutting down gracefully...");
-  process.exit(0);
+  closeBrowser().finally(() => process.exit(0));
 });
 
 // Handle unhandled promise rejections
