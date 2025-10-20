@@ -105,6 +105,8 @@ export const getBrowser = async (): Promise<Browser> => {
   // 🔧 Tambahkan retry dan catch TargetClosed
   try {
     sharedBrowser = await puppeteer.launch(launchOptions);
+    await sharedBrowser.pages(); // Force initialization
+    await new Promise((r) => setTimeout(r, 500)); // Stabilization delay
   } catch (err: any) {
     console.error("⚠️ Puppeteer launch failed:", err.message);
     if (
@@ -142,32 +144,48 @@ export const closeBrowser = async (): Promise<void> => {
 
 // --- Helper page wrapper (tidak menutup sebelum callback selesai) ---
 export const withPage = async <T>(
-  fn: (page: Page, browser: Browser) => Promise<T>
+  fn: (page: Page, browser: Browser) => Promise<T>,
+  maxRetries = 2
 ): Promise<T> => {
-  const runTask = async () => {
-    const browser = await getBrowser();
+  const runTask = async (): Promise<T> => {
+    let lastError: any;
 
-    // pakai incognito agar konteks terisolasi tapi tetap persistent via userDataDir
-    const ctx = await browser.createBrowserContext();
-    const page = await ctx.newPage();
-
-    page.setDefaultTimeout(30_000);
-    page.setDefaultNavigationTimeout(60_000);
-    await page.setUserAgent(
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    );
-
-    try {
-      const result = await fn(page, browser);
-      return result;
-    } finally {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        await page.close();
-      } catch {}
-      try {
-        await ctx.close();
-      } catch {}
+        const browser = await getBrowser();
+        const page = await browser.newPage();
+
+        page.setDefaultTimeout(30_000);
+        page.setDefaultNavigationTimeout(60_000);
+        await page.setUserAgent(
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        );
+
+        try {
+          const result = await fn(page, browser);
+          return result;
+        } finally {
+          await page.close().catch(() => {});
+        }
+      } catch (error: any) {
+        lastError = error;
+        const isTargetClosed =
+          error.message?.includes("Target closed") ||
+          error.message?.includes("Protocol error");
+
+        if (isTargetClosed && attempt < maxRetries) {
+          console.warn(
+            `🔁 Retry ${attempt + 1}/${maxRetries} due to: ${error.message}`
+          );
+          // Reset browser untuk retry
+          await closeBrowser();
+          await new Promise((r) => setTimeout(r, 1000));
+          continue;
+        }
+        throw error;
+      }
     }
+    throw lastError;
   };
 
   const pq = await getPQueue();
