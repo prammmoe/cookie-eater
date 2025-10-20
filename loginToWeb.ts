@@ -1,3 +1,4 @@
+// loginToWeb.ts
 import { Browser, Page } from "puppeteer-core";
 import "dotenv/config";
 import { selectors } from "./selectors";
@@ -8,44 +9,47 @@ export const loginToWeb = async (): Promise<any[]> => {
   const PASSWORD = process.env.PASSWORD ?? "";
   const TARGET_URL = process.env.WEB_URL ?? "";
 
-  if (!EMAIL || !PASSWORD) {
+  if (!EMAIL || !PASSWORD)
     throw new Error("❌ EMAIL or PASSWORD not set in environment variables");
-  }
-  if (!TARGET_URL) {
+  if (!TARGET_URL)
     throw new Error("❌ WEB_URL not set in environment variables");
-  }
 
   console.log(`🚀 Navigating to ${TARGET_URL}...`);
 
   const existedBefore = hasBrowser();
   const browser = await getBrowser();
-  if (existedBefore) {
-    console.log("♻️ Reusing existing shared browser instance");
-  } else {
-    console.log("🆕 Launched new shared browser instance for this request");
-  }
+  console.log(
+    existedBefore
+      ? "♻️ Reusing existing shared browser instance"
+      : "🆕 Launched new shared browser instance for this request"
+  );
 
   return await withPage<any[]>(async (page) => {
     await page.goto(TARGET_URL, {
       waitUntil: "domcontentloaded",
-      timeout: 60000,
+      timeout: 60_000,
     });
     console.log("✅ Page loaded.");
 
-    // Wait for SPA initialization
-    await sleep(2000);
+    // SPA warm-up
+    await sleep(1500);
 
-    // Check if already logged in
+    // Already logged in?
     const loginBtn = await page
-      .waitForSelector(selectors.loginButton, { visible: true, timeout: 10000 })
+      .waitForSelector(selectors.loginButton, {
+        visible: true,
+        timeout: 10_000,
+      })
       .catch(() => null);
 
     if (!loginBtn) {
       console.log("✅ Already logged in — collecting cookies...");
       await waitForFullAuthentication(page);
+      await sleep(1500); // beri waktu flush Set-Cookie
       const savedCookies = await getFormattedCookies(
         browser,
-        new URL(TARGET_URL).hostname
+        new URL(TARGET_URL).hostname,
+        page
       );
       await verifyCookies(page, savedCookies, TARGET_URL);
       return savedCookies;
@@ -53,52 +57,45 @@ export const loginToWeb = async (): Promise<any[]> => {
 
     console.log("🔓 Not logged in, clicking login...");
     await loginBtn.click();
+    await sleep(700);
 
-    // Wait for login form
-    await sleep(1000);
-
-    // Handle email step
+    // email
     await page.waitForSelector(selectors.emailInput, {
       visible: true,
-      timeout: 15000,
+      timeout: 15_000,
     });
     console.log("⌨️ Typing email...");
-
     await page.click(selectors.emailInput, { clickCount: 3 });
     await page.keyboard.press("Backspace");
-    await page.type(selectors.emailInput, EMAIL, { delay: 50 });
+    await page.type(selectors.emailInput, EMAIL, { delay: 40 });
 
-    // Find submit button
     const possibleSubmitSelectors = [
       selectors.submitButton,
       'button[type="submit"]',
-      'button:contains("Continue")',
-      'button:contains("Next")',
+      'button:has-text("Continue")',
+      'button:has-text("Next")',
       'input[type="submit"]',
       '[data-testid="continue-button"]',
       '[data-testid="submit-button"]',
     ];
-
     const submitSelector = await findVisibleSelector(
       page,
       possibleSubmitSelectors
     );
-    if (!submitSelector) {
-      throw new Error("Submit button not found");
-    }
+    if (!submitSelector) throw new Error("Submit button not found");
 
     console.log("🖱️ Clicking Continue (after email)...");
     await Promise.all([
       page.click(submitSelector),
       Promise.race([
         page
-          .waitForNavigation({ waitUntil: "networkidle0", timeout: 15000 })
+          .waitForNavigation({ waitUntil: "networkidle0", timeout: 15_000 })
           .catch(() => null),
-        sleep(2000), // fallback for SPA
+        sleep(1500),
       ]),
     ]);
 
-    // Handle password step
+    // password
     console.log("⏳ Waiting for password field...");
     const possiblePasswordSelectors = [
       selectors.passwordInput,
@@ -109,7 +106,6 @@ export const loginToWeb = async (): Promise<any[]> => {
       "#password",
       ".password-input",
     ];
-
     const foundPasswordSelector = await findVisibleSelector(
       page,
       possiblePasswordSelectors
@@ -125,25 +121,22 @@ export const loginToWeb = async (): Promise<any[]> => {
     console.log("🔒 Typing password...");
     await page.click(foundPasswordSelector, { clickCount: 3 });
     await page.keyboard.press("Backspace");
-    await page.type(foundPasswordSelector, PASSWORD, { delay: 50 });
-
-    await sleep(500);
+    await page.type(foundPasswordSelector, PASSWORD, { delay: 40 });
 
     const finalSubmitSelector = await findVisibleSelector(
       page,
       possibleSubmitSelectors
     );
-    if (!finalSubmitSelector) {
-      throw new Error("Final submit button not found");
-    }
+    if (!finalSubmitSelector) throw new Error("Final submit button not found");
 
     console.log("🖱️ Clicking Continue (after password)...");
-
-    // Handle post-login flows
     await Promise.race([
       (async () => {
         await Promise.all([
-          page.waitForNavigation({ waitUntil: "networkidle0", timeout: 30000 }),
+          page.waitForNavigation({
+            waitUntil: "networkidle0",
+            timeout: 30_000,
+          }),
           page.click(finalSubmitSelector),
         ]);
       })(),
@@ -152,12 +145,12 @@ export const loginToWeb = async (): Promise<any[]> => {
         await Promise.race([
           page.waitForSelector(selectors.loginButton, {
             hidden: true,
-            timeout: 20000,
+            timeout: 20_000,
           }),
           page
             .waitForSelector(
               '[data-testid="user-menu"], [data-testid="dashboard"], .user-avatar, .logout-button',
-              { visible: true, timeout: 20000 }
+              { visible: true, timeout: 20_000 }
             )
             .catch(() => null),
         ]);
@@ -177,25 +170,25 @@ export const loginToWeb = async (): Promise<any[]> => {
       console.log("✅ Login successful, collecting cookies...");
     }
 
+    // beri waktu flush Set-Cookie
+    await sleep(1500);
+
     const hostname = new URL(TARGET_URL).hostname;
-    const savedCookies = await getFormattedCookies(browser, hostname);
+    const savedCookies = await getFormattedCookies(browser, hostname, page);
 
     await verifyCookies(page, savedCookies, TARGET_URL);
-
     return savedCookies;
   });
 };
 
-/**
- * Utility to find the first visible selector
- */
+// --- utils ---
 const findVisibleSelector = async (
   page: Page,
   selectors: string[]
 ): Promise<string | null> => {
   for (const sel of selectors) {
     const handle = await page
-      .waitForSelector(sel, { visible: true, timeout: 5000 })
+      .waitForSelector(sel, { visible: true, timeout: 5_000 })
       .catch(() => null);
     if (handle) return sel;
   }
@@ -204,9 +197,8 @@ const findVisibleSelector = async (
 
 const waitForFullAuthentication = async (page: Page): Promise<void> => {
   console.log("⏳ Waiting for authentication to complete...");
-  await sleep(3000);
-
-  const authIndicators = [
+  await sleep(1200);
+  const indicators = [
     '[data-testid="user-menu"]',
     '[data-testid="dashboard"]',
     ".user-avatar",
@@ -216,45 +208,86 @@ const waitForFullAuthentication = async (page: Page): Promise<void> => {
     'nav[data-authenticated="true"]',
     ".authenticated",
   ];
-
-  for (const indicator of authIndicators) {
+  for (const indicator of indicators) {
     const element = await page
-      .waitForSelector(indicator, { visible: true, timeout: 5000 })
+      .waitForSelector(indicator, { visible: true, timeout: 5_000 })
       .catch(() => null);
     if (element) {
       console.log(`✅ Found auth indicator: ${indicator}`);
       break;
     }
   }
-
-  await sleep(2000);
-
-  await page.waitForNetworkIdle({ timeout: 10000 }).catch(() => {
+  await page.waitForNetworkIdle({ timeout: 10_000 }).catch(() => {
     console.log("⏳ Network idle wait not available or timed out");
   });
 };
 
+// === COOKIE HARVEST (serverless-safe) ===
 const getFormattedCookies = async (
   browser: Browser,
-  filterHost?: string
+  filterHost?: string,
+  currentPage?: Page
 ): Promise<any[]> => {
   console.log("🍪 Collecting cookies from all browser contexts...");
 
-  let allCookies: any[] = [];
-  const defaultCookies = await browser.defaultBrowserContext().cookies();
-  allCookies = allCookies.concat(defaultCookies);
+  const domains = new Set<string>();
+  const all: any[] = [];
 
-  const pages = await browser.pages();
-  for (const page of pages) {
+  // 1) Semua BrowserContext
+  const contexts = browser.browserContexts();
+  console.log("🍪 Debug: contexts =", contexts.length);
+  for (const ctx of contexts) {
     try {
-      const pageCookies = await page.cookies();
-      allCookies = allCookies.concat(pageCookies);
+      const ctxCookies = await ctx.cookies();
+      all.push(...ctxCookies);
+      ctxCookies.forEach((c) => domains.add(c.domain));
     } catch (e) {
-      console.warn("Could not get cookies from page:", e);
+      console.warn("⚠️ Failed to read ctx cookies:", e);
     }
   }
 
-  const uniqueCookies = allCookies.filter(
+  // 2) Semua Page (kadang lebih sukses dari ctx.cookies())
+  const pages = await browser.pages();
+  console.log("🍪 Debug: pages =", pages.length);
+  for (const p of pages) {
+    try {
+      const pc = await p.cookies();
+      all.push(...pc);
+      pc.forEach((c) => domains.add(c.domain));
+    } catch (e) {
+      console.warn("⚠️ Failed to read page cookies:", e);
+    }
+  }
+
+  console.log("🍪 Debug: cookie domains seen =", Array.from(domains));
+
+  // 3) Fallback: document.cookie (last resort)
+  if (all.length === 0 && currentPage) {
+    try {
+      const docCookie = await currentPage.evaluate(() => document.cookie);
+      console.log("🍪 Fallback document.cookie =", docCookie);
+      if (docCookie && docCookie.trim().length) {
+        const parsed = docCookie.split(";").map((kv) => {
+          const [name, ...rest] = kv.split("=");
+          return {
+            name: name.trim(),
+            value: rest.join("=").trim(),
+            domain: "." + new URL(currentPage.url()).hostname,
+            path: "/",
+            httpOnly: false,
+            secure: true,
+            session: true,
+          };
+        });
+        all.push(...(parsed as any[]));
+      }
+    } catch (e) {
+      console.warn("⚠️ document.cookie fallback failed:", e);
+    }
+  }
+
+  // Uniq by (name+domain+path)
+  const unique = all.filter(
     (cookie, index, self) =>
       index ===
       self.findIndex(
@@ -263,6 +296,27 @@ const getFormattedCookies = async (
           c.domain === cookie.domain &&
           c.path === cookie.path
       )
+  );
+
+  const byDomainLoose = (cookieDomain: string, host: string) => {
+    const cd = (cookieDomain || "").replace(/^\./, "");
+    const h = (host || "").replace(/^\./, "");
+    if (!h) return true;
+    return (
+      cd === h ||
+      cd.endsWith("." + h) ||
+      h.endsWith("." + cd) ||
+      cd.includes(h) ||
+      h.includes(cd)
+    );
+  };
+
+  const filtered = filterHost
+    ? unique.filter((c) => byDomainLoose(c.domain, filterHost))
+    : unique;
+
+  console.log(
+    `🍪 Found ${filtered.length} relevant cookies (${unique.length} total unique)`
   );
 
   const mapSameSite = (val: any): "strict" | "lax" | "none" | undefined => {
@@ -274,48 +328,29 @@ const getFormattedCookies = async (
     return undefined;
   };
 
-  const byDomain = (cookieDomain: string, host: string) => {
-    if (!host) return true;
-    if (cookieDomain === host) return true;
-    if (cookieDomain === `.${host}`) return true;
-    if (cookieDomain.endsWith(`.${host}`)) return true;
-    if (host.includes(cookieDomain.replace(/^\./, ""))) return true;
-    if (cookieDomain.replace(/^\./, "").includes(host)) return true;
-    return false;
-  };
-
-  const filtered = filterHost
-    ? uniqueCookies.filter((c) => byDomain(c.domain, filterHost))
-    : uniqueCookies;
-
-  console.log(
-    `🍪 Found ${filtered.length} relevant cookies (${uniqueCookies.length} total unique)`
-  );
-
-  return filtered.map((cookie) => {
+  return filtered.map((cookie: any) => {
     const expires =
       typeof cookie.expires === "number" ? cookie.expires : undefined;
     const isSession = !expires || expires <= 0;
-
     const base: any = {
       domain: cookie.domain,
-      hostOnly: !cookie.domain.startsWith("."),
-      httpOnly: cookie.httpOnly,
+      hostOnly: cookie.domain ? !String(cookie.domain).startsWith(".") : false,
+      httpOnly: !!cookie.httpOnly,
       name: cookie.name,
-      path: cookie.path,
-      sameSite: mapSameSite((cookie as any).sameSite),
-      secure: cookie.secure,
+      path: cookie.path ?? "/",
+      sameSite: mapSameSite(cookie.sameSite),
+      secure: !!cookie.secure,
       session: isSession,
       storeId: null,
       value: cookie.value,
-      url: `https://${cookie.domain.replace(/^\./, "")}${cookie.path}`,
-      priority: (cookie as any).priority || "medium",
+      url: cookie.domain
+        ? `https://${String(cookie.domain).replace(/^\./, "")}${
+            cookie.path ?? "/"
+          }`
+        : undefined,
+      priority: (cookie as any).priority || "Medium",
     };
-
-    if (!isSession && expires) {
-      base.expirationDate = expires;
-    }
-
+    if (!isSession && expires) base.expirationDate = expires;
     return base;
   });
 };
@@ -326,7 +361,6 @@ const verifyCookies = async (
   targetUrl: string
 ): Promise<void> => {
   console.log("🧪 Verifying cookies work for authentication...");
-
   try {
     for (const cookie of cookies) {
       try {
@@ -346,30 +380,28 @@ const verifyCookies = async (
     }
 
     await testPage.goto(targetUrl, { waitUntil: "domcontentloaded" });
-    await sleep(3000);
+    await sleep(1200);
 
     const loginButton = await testPage
       .$(selectors.loginButton)
       .catch(() => null);
     const isLoggedIn = !loginButton;
 
-    if (isLoggedIn) {
+    if (isLoggedIn)
       console.log(
         "✅ Cookie verification successful - appears to be logged in"
       );
-    } else {
+    else {
       console.log("⚠️ Cookie verification failed - login button still present");
-
-      const authIndicators = [
+      const indicators = [
         '[data-testid="user-menu"]',
         ".user-avatar",
         ".logout-button",
         '[data-testid="dashboard"]',
       ];
-
-      for (const indicator of authIndicators) {
-        const element = await testPage.$(indicator).catch(() => null);
-        if (element) {
+      for (const indicator of indicators) {
+        const el = await testPage.$(indicator).catch(() => null);
+        if (el) {
           console.log(
             `✅ Found auth indicator: ${indicator} - cookies might still work`
           );
@@ -382,29 +414,4 @@ const verifyCookies = async (
   }
 };
 
-export const applyCookiesToPage = async (
-  page: Page,
-  cookies: any[]
-): Promise<void> => {
-  console.log("🍪 Applying cookies to new page...");
-  for (const cookie of cookies) {
-    try {
-      await page.setCookie({
-        name: cookie.name,
-        value: cookie.value,
-        domain: cookie.domain,
-        path: cookie.path,
-        httpOnly: cookie.httpOnly,
-        secure: cookie.secure,
-        sameSite: cookie.sameSite as any,
-        expires: cookie.expirationDate,
-      });
-    } catch (e: any) {
-      console.warn(`Failed to apply cookie ${cookie.name}:`, e?.message ?? e);
-    }
-  }
-  console.log(`✅ Applied ${cookies.length} cookies to page`);
-};
-
-const sleep = (ms: number) =>
-  new Promise<void>((resolve) => setTimeout(resolve, ms));
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
