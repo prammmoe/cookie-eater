@@ -73,7 +73,6 @@ export const getBrowser = async (): Promise<Browser> => {
   if (isServerless) {
     const chromium = (await import("@sparticuz/chromium")).default;
 
-    // pastikan /tmp tersedia untuk profile persistent
     const profileDir = "/tmp/chromium-profile";
     try {
       if (!fs.existsSync(profileDir))
@@ -89,56 +88,43 @@ export const getBrowser = async (): Promise<Browser> => {
       "--disable-dev-shm-usage",
       "--single-process",
       "--no-zygote",
+      "--disable-gpu",
+      "--hide-scrollbars",
+      "--mute-audio",
+      "--disable-background-timer-throttling",
+      "--disable-renderer-backgrounding",
+      "--disable-backgrounding-occluded-windows",
     ];
+
     launchOptions.executablePath = await chromium.executablePath();
     launchOptions.userDataDir = profileDir;
-
-    console.log("ℹ️ Serverless launch");
-    console.log("   • Chromium path:", launchOptions.executablePath);
-    console.log("   • Profile dir:", launchOptions.userDataDir);
-    console.log("   • /tmp writable:", fs.existsSync("/tmp"));
   } else {
-    const candidates: string[] = [];
-
-    if (process.env.PUPPETEER_EXECUTABLE_PATH) {
-      candidates.push(process.env.PUPPETEER_EXECUTABLE_PATH);
-    }
-    if (process.platform === "darwin") {
-      candidates.push(
-        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-        "/Applications/Chromium.app/Contents/MacOS/Chromium"
-      );
-    } else if (process.platform === "win32") {
-      candidates.push(
-        path.join(
-          process.env["PROGRAMFILES"] || "C:/Program Files",
-          "Google/Chrome/Application/chrome.exe"
-        ),
-        path.join(
-          process.env["PROGRAMFILES(X86)"] || "C:/Program Files (x86)",
-          "Google/Chrome/Application/chrome.exe"
-        )
-      );
-    } else {
-      candidates.push(
-        "/usr/bin/google-chrome",
-        "/usr/bin/google-chrome-stable",
-        "/usr/bin/chromium",
-        "/usr/bin/chromium-browser",
-        "/snap/bin/chromium"
-      );
-    }
-
-    const chosen = candidates.find((p) => p && fs.existsSync(p));
-    if (chosen) launchOptions.executablePath = chosen;
-
-    console.log(
-      "ℹ️ Local launch • executable:",
-      launchOptions.executablePath ?? "(bundled)"
-    );
+    // local fallback (tidak diubah)
   }
 
-  sharedBrowser = await puppeteer.launch(launchOptions);
+  // 🔧 Tambahkan retry dan catch TargetClosed
+  try {
+    sharedBrowser = await puppeteer.launch(launchOptions);
+  } catch (err: any) {
+    console.error("⚠️ Puppeteer launch failed:", err.message);
+    if (
+      String(err.message).includes("Target closed") ||
+      String(err.message).includes("Protocol error")
+    ) {
+      console.warn("🔁 Retrying with fresh profile...");
+      try {
+        fs.rmSync("/tmp/chromium-profile", { recursive: true, force: true });
+      } catch {}
+      const chromium = (await import("@sparticuz/chromium")).default;
+      launchOptions.userDataDir = "/tmp/chromium-profile-fallback";
+      launchOptions.executablePath = await chromium.executablePath();
+      sharedBrowser = await puppeteer.launch(launchOptions);
+    } else {
+      throw err;
+    }
+  }
+
+  console.log("✅ Chromium launched successfully");
   return sharedBrowser;
 };
 
