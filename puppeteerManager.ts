@@ -83,14 +83,12 @@ export const getBrowser = async (): Promise<Browser> => {
     launchOptions.args = chromium.args;
     launchOptions.executablePath = await chromium.executablePath();
   } else {
-    // Local/dev: prefer a real Chrome/Chromium executable
     const candidates: string[] = [];
 
     if (process.env.PUPPETEER_EXECUTABLE_PATH) {
       candidates.push(process.env.PUPPETEER_EXECUTABLE_PATH);
     }
 
-    // Common OS-specific defaults
     if (process.platform === "darwin") {
       candidates.push(
         "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
