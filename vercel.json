@@ -3,10 +3,7 @@
   "builds": [
     {
       "src": "/api/index.ts",
-      "use": "@vercel/node",
-      "config": {
-        "maxLambdaSize": "50mb"
-      }
+      "use": "@vercel/node"
     }
   ],
   "routes": [
@@ -14,15 +11,5 @@
       "src": "/(.*)",
       "dest": "/api/index.ts"
     }
-  ],
-  "functions": {
-    "api/index.ts": {
-      "maxDuration": 10,
-      "memory": 3008
-    }
-  },
-  "env": {
-    "PUPPETEER_SKIP_CHROMIUM_DOWNLOAD": "true",
-    "PUPPETEER_EXECUTABLE_PATH": "/tmp/.cache/puppeteer/chrome"
-  }
+  ]
 }
