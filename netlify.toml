@@ -4,7 +4,8 @@
   command = "npm run build"
 
 [functions]
-  directory = "dist/api"
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
 
 [[redirects]]
   from = "/login-to-web"
