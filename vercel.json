@@ -11,5 +11,12 @@
       "src": "/(.*)",
       "dest": "/api/index.ts"
     }
-  ]
+  ],
+  "functions": {
+    "api/index.ts": {
+      "maxDuration": 60,
+      "memory": 1024,
+      "runtime": "nodejs20.x"
+    }
+  }
 }
