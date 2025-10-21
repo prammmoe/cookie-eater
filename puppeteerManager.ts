@@ -113,15 +113,19 @@ export const getBrowser = async (): Promise<Browser> => {
       ...chromium.args.filter(
         (a) => !["--single-process", "--no-zygote"].includes(a)
       ),
+      "--single-process",
+      "--no-zygote",
       "--no-sandbox",
       "--disable-setuid-sandbox",
       "--disable-dev-shm-usage",
       "--disable-gpu",
-      "--disable-software-rasterizer",
-      "--disable-background-timer-throttling",
-      "--disable-backgrounding-occluded-windows",
       "--hide-scrollbars",
       "--mute-audio",
+      "--disable-background-timer-throttling",
+      "--disable-renderer-backgrounding",
+      "--disable-backgrounding-occluded-windows",
+      "--disable-software-rasterizer",
+      "--remote-debugging-port=0",
     ];
 
     launchOptions.executablePath = await chromium.executablePath();
