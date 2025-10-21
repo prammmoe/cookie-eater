@@ -77,6 +77,8 @@ export const getBrowser = async (): Promise<Browser> => {
       process.env.NETLIFY
   );
 
+  console.log("🧭 Serverless runtime detected:", isServerless);
+
   const launchOptions: any = {
     headless: true,
     defaultViewport: { width: 1280, height: 800 },
@@ -93,8 +95,14 @@ export const getBrowser = async (): Promise<Browser> => {
       console.warn("⚠️ Cannot create /tmp profile dir:", e);
     }
 
-    launchOptions.protocolTimeout = 120_000; // 2 minutes
-    // Gunakan flags stabil (hindari --single-process dan --no-zygote)
+    // Use recommended settings for Lambda/Vercel
+    launchOptions.headless = (chromium as any).headless ?? true;
+    launchOptions.protocolTimeout = Number(
+      process.env.PUPPETEER_PROTOCOL_TIMEOUT ?? 180_000
+    );
+    // Prefer pipe over WebSocket; some serverless envs restrict sockets
+    launchOptions.pipe = true;
+    // Flags based on chromium defaults with safe additions
     launchOptions.args = [
       ...chromium.args.filter(
         (a) => !["--single-process", "--no-zygote"].includes(a)
@@ -103,7 +111,6 @@ export const getBrowser = async (): Promise<Browser> => {
       "--disable-setuid-sandbox",
       "--disable-dev-shm-usage",
       "--disable-gpu",
-      "--remote-debugging-port=0",
       "--disable-software-rasterizer",
       "--disable-background-timer-throttling",
       "--disable-backgrounding-occluded-windows",
@@ -152,6 +159,13 @@ export const getBrowser = async (): Promise<Browser> => {
   }
 
   try {
+    console.log("🎯 Launching Chromium with options:", {
+      headless: launchOptions.headless,
+      protocolTimeout: launchOptions.protocolTimeout,
+      pipe: launchOptions.pipe,
+      executablePath: launchOptions.executablePath,
+    });
+
     sharedBrowser = await puppeteer.launch(launchOptions);
     await new Promise((r) => setTimeout(r, 400)); // stabilisasi
   } catch (err: any) {
