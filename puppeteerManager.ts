@@ -5,7 +5,7 @@ import path from "path";
 
 let sharedBrowser: Browser | null = null;
 
-// --- Concurrency (tetap) ---
+// --- Concurrency ---
 type Task<T> = () => Promise<T>;
 let queueConcurrency = 3;
 let activeCount = 0;
@@ -53,9 +53,21 @@ export const setConcurrency = (concurrency: number) => {
   }
 };
 
-// --- Launch Chromium yang kompatibel serverless ---
+// --- Browser Management ---
+async function verifyBrowser(browser: Browser | null): Promise<boolean> {
+  if (!browser) return false;
+  try {
+    if (!browser.isConnected()) return false;
+    await browser.version(); // ping browser
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// --- Launch Chromium yang stabil ---
 export const getBrowser = async (): Promise<Browser> => {
-  if (sharedBrowser && sharedBrowser.connected) return sharedBrowser;
+  if (await verifyBrowser(sharedBrowser)) return sharedBrowser as Browser;
 
   const isServerless = Boolean(
     process.env.AWS_LAMBDA_FUNCTION_VERSION ||
@@ -72,8 +84,8 @@ export const getBrowser = async (): Promise<Browser> => {
 
   if (isServerless) {
     const chromium = (await import("@sparticuz/chromium")).default;
-
     const profileDir = "/tmp/chromium-profile";
+
     try {
       if (!fs.existsSync(profileDir))
         fs.mkdirSync(profileDir, { recursive: true });
@@ -81,30 +93,65 @@ export const getBrowser = async (): Promise<Browser> => {
       console.warn("⚠️ Cannot create /tmp profile dir:", e);
     }
 
+    // Gunakan flags stabil (hindari --single-process dan --no-zygote)
     launchOptions.args = [
-      ...chromium.args,
+      ...chromium.args.filter(
+        (a) => !["--single-process", "--no-zygote"].includes(a)
+      ),
       "--no-sandbox",
       "--disable-setuid-sandbox",
       "--disable-dev-shm-usage",
-      "--single-process",
-      "--no-zygote",
       "--disable-gpu",
+      "--remote-debugging-port=0",
+      "--disable-software-rasterizer",
+      "--disable-background-timer-throttling",
+      "--disable-backgrounding-occluded-windows",
       "--hide-scrollbars",
       "--mute-audio",
-      "--disable-background-timer-throttling",
-      "--disable-renderer-backgrounding",
-      "--disable-backgrounding-occluded-windows",
     ];
 
     launchOptions.executablePath = await chromium.executablePath();
     launchOptions.userDataDir = profileDir;
   } else {
-    // local fallback (tidak diubah)
+    // Local fallback
+    const candidates: string[] = [];
+
+    if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+      candidates.push(process.env.PUPPETEER_EXECUTABLE_PATH);
+    }
+
+    if (process.platform === "darwin") {
+      candidates.push(
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/Applications/Chromium.app/Contents/MacOS/Chromium"
+      );
+    } else if (process.platform === "win32") {
+      candidates.push(
+        path.join(
+          process.env["PROGRAMFILES"] || "C:/Program Files",
+          "Google/Chrome/Application/chrome.exe"
+        ),
+        path.join(
+          process.env["PROGRAMFILES(X86)"] || "C:/Program Files (x86)",
+          "Google/Chrome/Application/chrome.exe"
+        )
+      );
+    } else {
+      candidates.push(
+        "/usr/bin/google-chrome",
+        "/usr/bin/google-chrome-stable",
+        "/usr/bin/chromium",
+        "/usr/bin/chromium-browser"
+      );
+    }
+
+    const chosen = candidates.find((p) => p && fs.existsSync(p));
+    if (chosen) launchOptions.executablePath = chosen;
   }
 
-  // 🔧 Tambahkan retry dan catch TargetClosed
   try {
     sharedBrowser = await puppeteer.launch(launchOptions);
+    await new Promise((r) => setTimeout(r, 400)); // stabilisasi
   } catch (err: any) {
     console.error("⚠️ Puppeteer launch failed:", err.message);
     if (
@@ -125,11 +172,11 @@ export const getBrowser = async (): Promise<Browser> => {
   }
 
   console.log("✅ Chromium launched successfully");
-  return sharedBrowser;
+  return sharedBrowser!;
 };
 
 export const hasBrowser = (): boolean =>
-  !!sharedBrowser && sharedBrowser.connected;
+  !!sharedBrowser && sharedBrowser.isConnected();
 
 export const closeBrowser = async (): Promise<void> => {
   if (sharedBrowser) {
@@ -140,34 +187,48 @@ export const closeBrowser = async (): Promise<void> => {
   }
 };
 
-// --- Helper page wrapper (tidak menutup sebelum callback selesai) ---
+// --- Page Handler ---
 export const withPage = async <T>(
-  fn: (page: Page, browser: Browser) => Promise<T>
+  fn: (page: Page, browser: Browser) => Promise<T>,
+  maxRetries = 2
 ): Promise<T> => {
-  const runTask = async () => {
-    const browser = await getBrowser();
+  const runTask = async (): Promise<T> => {
+    let lastError: any;
 
-    // pakai incognito agar konteks terisolasi tapi tetap persistent via userDataDir
-    const ctx = await browser.createBrowserContext();
-    const page = await ctx.newPage();
-
-    page.setDefaultTimeout(30_000);
-    page.setDefaultNavigationTimeout(60_000);
-    await page.setUserAgent(
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    );
-
-    try {
-      const result = await fn(page, browser);
-      return result;
-    } finally {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        await page.close();
-      } catch {}
-      try {
-        await ctx.close();
-      } catch {}
+        const browser = await getBrowser();
+        const page = await browser.newPage();
+
+        page.setDefaultTimeout(30_000);
+        page.setDefaultNavigationTimeout(60_000);
+        await page.setUserAgent(
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        );
+
+        try {
+          return await fn(page, browser);
+        } finally {
+          await page.close().catch(() => {});
+        }
+      } catch (error: any) {
+        lastError = error;
+        const isTargetClosed =
+          error.message?.includes("Target closed") ||
+          error.message?.includes("Protocol error");
+
+        if (isTargetClosed && attempt < maxRetries) {
+          console.warn(
+            `🔁 Retry ${attempt + 1}/${maxRetries} due to: ${error.message}`
+          );
+          await closeBrowser();
+          await new Promise((r) => setTimeout(r, 800));
+          continue;
+        }
+        throw error;
+      }
     }
+    throw lastError;
   };
 
   const pq = await getPQueue();
