@@ -97,8 +97,14 @@ export const getBrowser = async (): Promise<Browser> => {
 
     // Use recommended settings for Lambda/Vercel
     launchOptions.headless = (chromium as any).headless ?? true;
+    launchOptions.defaultViewport = (chromium as any).defaultViewport ?? {
+      width: 1280,
+      height: 800,
+    };
+    launchOptions.ignoreDefaultArgs = (chromium as any).ignoreDefaultArgs ?? [];
+    launchOptions.dumpio = true;
     launchOptions.protocolTimeout = Number(
-      process.env.PUPPETEER_PROTOCOL_TIMEOUT ?? 180_000
+      process.env.PUPPETEER_PROTOCOL_TIMEOUT ?? 300_000
     );
     // Prefer pipe over WebSocket; some serverless envs restrict sockets
     launchOptions.pipe = true;
