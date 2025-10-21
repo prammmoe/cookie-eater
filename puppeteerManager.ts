@@ -93,6 +93,7 @@ export const getBrowser = async (): Promise<Browser> => {
       console.warn("⚠️ Cannot create /tmp profile dir:", e);
     }
 
+    launchOptions.protocolTimeout = 120_000; // 2 minutes
     // Gunakan flags stabil (hindari --single-process dan --no-zygote)
     launchOptions.args = [
       ...chromium.args.filter(
@@ -141,7 +142,8 @@ export const getBrowser = async (): Promise<Browser> => {
         "/usr/bin/google-chrome",
         "/usr/bin/google-chrome-stable",
         "/usr/bin/chromium",
-        "/usr/bin/chromium-browser"
+        "/usr/bin/chromium-browser",
+        "/snap/bin/chromium"
       );
     }
 
