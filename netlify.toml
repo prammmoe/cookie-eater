@@ -6,6 +6,12 @@
 [functions]
   directory = "netlify/functions"
   node_bundler = "esbuild"
+  external_node_modules = ["@sparticuz/chromium", "puppeteer-core"]
+  included_files = ["node_modules/@sparticuz/chromium/**/*"]
+
+[functions."login-to-web"]
+  timeout = 180
+  memory = 1024
 
 [[redirects]]
   from = "/login-to-web"

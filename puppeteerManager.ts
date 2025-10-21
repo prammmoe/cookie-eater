@@ -129,6 +129,11 @@ export const getBrowser = async (): Promise<Browser> => {
     ];
 
     launchOptions.executablePath = await chromium.executablePath();
+    if (!launchOptions.executablePath) {
+      throw new Error(
+        "Chromium executablePath not resolved. Ensure @sparticuz/chromium assets are included (netlify.toml included_files/external_node_modules)."
+      );
+    }
     launchOptions.userDataDir = profileDir;
   } else {
     // Local fallback
