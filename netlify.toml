@@ -1,7 +1,7 @@
 [build]
   base = "."
   publish = "public"
-  command = "" # tidak perlu build command
+  command = "" 
 
 [functions]
   directory = "dist/api"
