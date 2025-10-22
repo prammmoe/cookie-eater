@@ -13,3 +13,13 @@
   from = "/login-to-web"
   to = "/.netlify/functions/login-to-web"
   status = 200
+
+[[redirects]]
+  from = "/health"
+  to = "/.netlify/functions/health"
+  status = 200
+
+[[redirects]]
+  from = "/status"
+  to = "/.netlify/functions/status"
+  status = 200
