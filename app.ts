@@ -42,7 +42,7 @@ app.get("/health", (_req, res) => {
 });
 
 // Enhanced login endpoint with better error handling and logging
-app.get("/login-to-web", async (_req, res) => {
+app.post("/login-to-web", async (req, res) => {
   const startTime = Date.now();
   const requestId = Math.random().toString(36).substring(7);
 
